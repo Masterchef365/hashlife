@@ -7,10 +7,12 @@ fn main() {
         false, false, false, false, //.
     ];
     let rect = ((0, 0), (3, 3));
-    let mut engine = Engine::default();
+    let mut engine = Engine::new();
     let root = engine.query((0, 0), 3, rect, &data);
     dbg!(&engine.lookup);
     dbg!(&engine.cache);
+    dbg!(root);
+    dbg!(engine.lookup[root]);
 }
 
 type Coord = (i32, i32);
@@ -20,7 +22,6 @@ type Rect = (Coord, Coord);
 /// Macrocell's address in the form [tl, tr, bl, br]
 type MacroCell = [usize; 4];
 
-#[derive(Default)]
 struct Engine {
     cache: HashMap<[usize; 4], usize>,
     lookup: Vec<[usize; 4]>,
@@ -46,6 +47,16 @@ fn sample_input_rect(
 }
 
 impl Engine {
+    pub fn new() -> Self {
+        Self {
+            lookup: vec![
+                [0; 4],
+                [usize::MAX; 4],
+            ],
+            cache: HashMap::new(),
+        }
+    }
+
     fn query(&mut self, (x, y): Coord, n: usize, input_rect: Rect, input: &[bool]) -> usize {
         if n == 0 {
             panic!("Leaf nodes are 2x2!");
@@ -55,9 +66,10 @@ impl Engine {
             let bits = [(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)]
                 .map(|pos| sample_input_rect(pos, input_rect, input).unwrap_or(false) as usize);
 
+            dbg!(n, bits);
             return match self.cache.get(&bits) {
                 Some(&idx) => idx,
-                None => self.push_cell(bits),
+                None => dbg!(self.push_cell(bits)),
             };
         }
 
@@ -67,11 +79,15 @@ impl Engine {
         let bl = self.query((x, y + side_len), n - 1, input_rect, input);
         let br = self.query((x + side_len, y + side_len), n - 1, input_rect, input);
 
-        self.calc_result([tl, tr, bl, br])
+        dbg!(n, tl, tr, bl, br);
+
+        dbg!(self.calc_result([tl, tr, bl, br], n))
     }
 
-    fn calc_result(&mut self, macro_cell: MacroCell) -> usize {
+    fn calc_result(&mut self, macro_cell: MacroCell, level: usize) -> usize {
+        eprintln!("CALC {}", level);
         if let Some(&result) = self.cache.get(&macro_cell) {
+            eprintln!("CACHED {:?} -> {}", macro_cell, result);
             return result;
         }
 
@@ -82,9 +98,21 @@ impl Engine {
             br @ [m, n, o, _] // Bottom right
         ] = macro_cell.map(|idx| self.lookup[idx]);
 
-        if tl.iter().any(|&b| b == 0 || b == 1) {
-            self.push_cell(solve_4x4(tl, tr, bl, br))
+        if level == 1 {
+            return self.push_cell(macro_cell);
+        }
+
+        if level == 2 {
+            // Check if we've encountered this node before
+            eprintln!("PRIMITIVE {:?}", macro_cell);
+            let soln = solve_4x4(tl, tr, bl, br);
+            eprintln!("PRIMITIVE {:?}", soln);
+            match self.cache.get(&soln) {
+                Some(&idx) => idx,
+                None => dbg!(self.push_cell(soln)),
+            }
         } else {
+            eprintln!("CONSTRUCT");
             /*
             | TL | TR |
             +----+----+
@@ -100,19 +128,19 @@ impl Engine {
             */
 
             // Top inner row
-            let q = self.calc_result(tl);
-            let r = self.calc_result([b, e, d, g]);
-            let s = self.calc_result(tr);
+            let q = self.calc_result(tl, level - 2);
+            let r = self.calc_result([b, e, d, g], level - 2);
+            let s = self.calc_result(tr, level - 2);
 
             // Middle inner row
-            let t = self.calc_result([c, d, i, j]);
-            let u = self.calc_result([d, g, j, m]);
-            let v = self.calc_result([g, h, m, n]);
+            let t = self.calc_result([c, d, i, j], level - 2);
+            let u = self.calc_result([d, g, j, m], level - 2);
+            let v = self.calc_result([g, h, m, n], level - 2);
 
             // Bottom inner row
-            let w = self.calc_result(bl);
-            let x = self.calc_result([j, m, l, o]);
-            let y = self.calc_result(br);
+            let w = self.calc_result(bl, level - 2);
+            let x = self.calc_result([j, m, l, o], level - 2);
+            let y = self.calc_result(br, level - 2);
 
             /*
             | Q R S |
@@ -121,13 +149,13 @@ impl Engine {
             */
 
             // Solve inner 9x9
-            let result_tl = self.calc_result([q, r, t, u]);
-            let result_tr = self.calc_result([r, s, u, v]);
+            let result_tl = self.calc_result([q, r, t, u], level - 2);
+            let result_tr = self.calc_result([r, s, u, v], level - 2);
 
-            let result_bl = self.calc_result([t, u, w, x]);
-            let result_br = self.calc_result([u, v, x, y]);
+            let result_bl = self.calc_result([t, u, w, x], level - 2);
+            let result_br = self.calc_result([u, v, x, y], level - 2);
 
-            self.push_cell([result_tl, result_tr, result_bl, result_br])
+            dbg!(self.push_cell([result_tl, result_tr, result_bl, result_br]))
         }
     }
 
