@@ -1,9 +1,21 @@
 use std::collections::HashMap;
 fn main() {
-
+    let data = [
+        false, false, true, false,
+        true, false, true, false,
+        false, true, true, false,
+        false, false, false, false,
+    ];
+    let rect = ((0, 0), (3, 3));
+    let mut engine = Engine::default();
+    let root = engine.query((0, 0), 2, rect, &data);
+    dbg!(engine.nodes[root]);
+    //dbg!(engine.cache);
 }
 
 type Coord = (i32, i32);
+// Inclusive rectangle in the form (min, max). Inclusive means min..=max
+type Rect = (Coord, Coord);
 type Unit2x2 = [bool; 4];
 
 /// Macrocell's address in the form [tl, tr, bl, br]
@@ -15,22 +27,54 @@ enum Node {
     Branch(MacroCellAddress),
 }
 
+#[derive(Default)]
 struct Engine {
     nodes: Vec<Node>,
     cache: HashMap<[usize; 4], usize>,
 }
 
+fn inside_rect((x, y): Coord, ((x1, y1), (x2, y2)): Rect) -> bool {
+    debug_assert!(x1 < x2);
+    debug_assert!(y1 < y2);
+    x >= x1 && x <= x2 && y >= y1 && y <= y2
+}
+
+fn sample_input_rect(
+    pos @ (x, y): Coord,
+    rect @ ((x1, y1), (x2, _)): Rect,
+    input: &[bool],
+) -> Option<bool> {
+    inside_rect(pos, rect).then(|| {
+        let (dx, dy) = (x - x1, y - y1);
+        let width = x2 - x1 + 1;
+        let idx = dx + dy * width;
+        input[idx as usize]
+    })
+}
+
 impl Engine {
-    fn query(&mut self, (x, y): Coord, n: usize) -> usize {
+    fn query(&mut self, (x, y): Coord, n: usize, input_rect: Rect, input: &[bool]) -> usize {
+        //dbg!(n, (x, y));
+
         if n == 0 {
-            todo!("Query bottom");
+            panic!("Leaf nodes are 2x2!");
         }
 
-        let side_len = 1 << n;
-        let tl = self.query((x, y), n - 1);
-        let tr = self.query((x, y + side_len), n - 1);
-        let bl = self.query((x + side_len, y), n - 1);
-        let br = self.query((x + side_len, y + side_len), n - 1);
+        if n == 1 {
+            let bits = [(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)]
+                .map(|pos| sample_input_rect(pos, input_rect, input).unwrap_or(false));
+            //dbg!(bits);
+            // TODO: Memoize 2x2 patterns!
+            let idx = self.nodes.len();
+            self.nodes.push(Node::Leaf(bits));
+            return idx;
+        }
+
+        let side_len = 1 << n - 1;
+        let tl = self.query((x, y), n - 1, input_rect, input);
+        let tr = self.query((x + side_len, y), n - 1, input_rect, input);
+        let bl = self.query((x, y + side_len), n - 1, input_rect, input);
+        let br = self.query((x + side_len, y + side_len), n - 1, input_rect, input);
 
         self.calc_result([tl, tr, bl, br])
     }
@@ -101,12 +145,69 @@ impl Engine {
         };
 
         let result_idx = self.nodes.len();
+        //dbg!(result);
         self.nodes.push(result);
         self.cache.insert(macro_cell, result_idx);
         result_idx
     }
 }
 
-fn solve_4x4(tl: Unit2x2, tr: Unit2x2, bl: Unit2x2, br: Unit2x2) -> Unit2x2 {
-    todo!()
+fn solve_4x4(
+    [a, b, c, d]: Unit2x2,
+    [e, f, g, h]: Unit2x2,
+    [i, j, k, l]: Unit2x2,
+    [m, n, o, p]: Unit2x2,
+) -> Unit2x2 {
+    [
+        solve_3x3([a, b, e, c, d, g, i, j, m]),
+        solve_3x3([b, e, f, d, g, h, j, m, n]),
+        solve_3x3([c, d, g, i, j, m, k, l, o]),
+        solve_3x3([d, g, h, j, m, n, l, o, p]),
+    ]
+}
+
+fn solve_3x3([a, b, c, d, e, f, g, h, i]: [bool; 9]) -> bool {
+    let count = [a, b, c, d, f, g, h, i].into_iter().filter(|&x| x).count();
+    gol_rules(e, count)
+}
+
+fn gol_rules(center: bool, neighbors: usize) -> bool {
+    match (center, neighbors) {
+        (true, n) if (n == 2 || n == 3) => true,
+        (false, n) if (n == 3) => true,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_solve_4x4() {
+        assert_eq!(
+            solve_4x4(
+                [
+                    false, false, //.
+                    true, false //.
+                ],
+                [
+                    true, false, //.
+                    true, false, //.
+                ],
+                [
+                    false, true, //.
+                    false, false, //.
+                ],
+                [
+                    true, false, //.
+                    false, false, //.
+                ]
+            ),
+            [
+                false, true, //.
+                true, true, //.
+            ]
+        );
+    }
 }
