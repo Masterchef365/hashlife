@@ -10,20 +10,27 @@ fn main() {
         false, false, false, false, //.
     ];
 
-    let w = 3;
-    let half_width = 1 << n - 2;
-    let pos @ (x, y) = (half_width, half_width);
-    let rect = (pos, (w + x, w + y));
+    let width = 4;
+    let height = 4;
+
+    let half_n_sq = 1i64 << n - 2;
+    let pos @ (x, y) = (half_n_sq, half_n_sq);
+    let rect = (pos, (x + width, y + height));
 
     let mut engine = Engine::new();
 
+    let qt = std::time::Instant::now();
     let root = engine.query((0, 0), n, rect, &data);
+    let qt = qt.elapsed();
+
     let root = engine.lookup[root].1.unwrap();
 
     for (idx, elem) in engine.lookup.iter().enumerate() {
         println!("{}, {:?}", idx, elem);
     }
     dbg!(root);
+
+    println!("Time: {}ms", qt.as_secs_f32() * 1000.);
 
     let cannon = engine.cannon(n - 1, root);
     for row in cannon.chunks_exact(1 << n - 1) {
@@ -34,7 +41,7 @@ fn main() {
     }
 }
 
-type Coord = (i32, i32);
+type Coord = (i64, i64);
 // Inclusive rectangle in the form (min, max). Inclusive means min..=max
 type Rect = (Coord, Coord);
 
@@ -52,7 +59,7 @@ struct Engine {
 fn inside_rect((x, y): Coord, ((x1, y1), (x2, y2)): Rect) -> bool {
     debug_assert!(x1 < x2);
     debug_assert!(y1 < y2);
-    x >= x1 && x <= x2 && y >= y1 && y <= y2
+    x >= x1 && x < x2 && y >= y1 && y < y2
 }
 
 /// Sample at `pos` from the given `input` buffer positioned at `rect`
@@ -64,7 +71,7 @@ fn sample_input_rect(
     // debug_assert_eq!(input.len(), (x2 - x1) * (y2 - y1)) // TODO:
     inside_rect(pos, rect).then(|| {
         let (dx, dy) = (x - x1, y - y1);
-        let width = x2 - x1 + 1; // Plus one since the rect is inclusive
+        let width = x2 - x1; // Plus one since the rect is inclusive
         let idx = dx + dy * width;
         input[idx as usize]
     })
@@ -274,8 +281,8 @@ fn rect_intersect(a: Rect, b: Rect) -> bool {
     x1a < x2b && x1b < x2a && y1a < y2b && y1b < y2a
 }
 
-fn extend_rect(((x1, y1), (x2, y2)): Rect, w: i32) -> Rect {
-    ((x1 - w, y1 - 2), (x2 + w, y2 + w))
+fn extend_rect(((x1, y1), (x2, y2)): Rect, w: i64) -> Rect {
+    ((x1 - w, y1 - w), (x2 + w, y2 + w))
 }
 
 /// Calculates whether or not this square can be anything other than zero, given the input rect
