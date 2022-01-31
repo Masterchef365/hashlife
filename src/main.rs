@@ -42,11 +42,12 @@ fn main() {
     dbg!(root);*/
 
     println!("Time: {}ms", qt.as_secs_f32() * 1000.);
-    dbg!(engine.lookup.len());
-    dbg!(engine.cache.len());
-    return;
 
-    let cannon = engine.cannon(n - 1, root);
+    let out_width = 300;
+    let half = 1i64 << n - 2;
+    let rect = extend_rect(((half, half), (half, half)), out_width);
+
+    let cannon = engine.cannon(n - 1, root, rect);
     /*
     for row in cannon.chunks_exact(1 << n - 1) {
         for &elem in row {
@@ -56,9 +57,9 @@ fn main() {
     }
     */
 
-    let width = 1 << n - 1;
+    let (width, _) = rect_dimensions(rect);
     let image_data: Vec<u8> = cannon.into_iter().map(|b| [b as u8 * 255; 3]).flatten().collect();
-    io::write_ppm("out.ppm", &image_data, width).expect("Image IO error");
+    io::write_ppm("out.ppm", &image_data, width as _).expect("Image IO error");
 }
 
 type Coord = (i64, i64);
@@ -83,17 +84,15 @@ fn inside_rect((x, y): Coord, ((x1, y1), (x2, y2)): Rect) -> bool {
 }
 
 /// Sample at `pos` from the given `input` buffer positioned at `rect`
-fn sample_input_rect(
+fn sample_rect(
     pos @ (x, y): Coord,
     rect @ ((x1, y1), (x2, _)): Rect,
-    input: &[bool],
-) -> Option<bool> {
+) -> Option<usize> {
     // debug_assert_eq!(input.len(), (x2 - x1) * (y2 - y1)) // TODO:
     inside_rect(pos, rect).then(|| {
         let (dx, dy) = (x - x1, y - y1);
         let width = x2 - x1; // Plus one since the rect is inclusive
-        let idx = dx + dy * width;
-        input[idx as usize]
+        (dx + dy * width) as usize
     })
 }
 
@@ -109,6 +108,11 @@ fn subcoords((x, y): Coord, n: usize) -> [Coord; 4] {
     ]
 }
 
+/// Returns the (width, height) of the given rect
+fn rect_dimensions(((x1, y1), (x2, y2)): Rect) -> (i64, i64) {
+    (x2 - x1, y2 - y1)
+}
+
 impl Engine {
     pub fn new() -> Self {
         Self {
@@ -120,28 +124,34 @@ impl Engine {
         }
     }
 
-    pub fn cannon(&self, n: usize, root: usize) -> Vec<bool> {
-        let side_len = 1 << n;
-        let mut data = vec![false; side_len * side_len];
-        self.cannon_rec((0, 0), n, &mut data, side_len, root);
+    pub fn cannon(&self, n: usize, root: usize, rect: Rect) -> Vec<bool> {
+        let (width, height) = rect_dimensions(rect);
+        let mut data = vec![false; (width * height) as usize];
+        self.cannon_rec((0, 0), n, &mut data, rect, root);
         data
     }
 
-    fn cannon_rec(&self, corner: Coord, n: usize, buf: &mut [bool], width: usize, cell: usize) {
+    fn cannon_rec(&self, corner: Coord, n: usize, buf: &mut [bool], rect: Rect, cell: usize) {
         debug_assert_ne!(n, 0);
         let (quadrants, _) = self.lookup[cell];
 
+        if zero_input(corner, n, rect) {
+            return;
+        }
+
         if n == 1 {
-            for ((x, y), val) in subcoords(corner, 0).into_iter().zip(quadrants) {
-                buf[(x as usize + y as usize * width)] = match val {
-                    0 => false,
-                    1 => true,
-                    other => panic!("N = 1 but {} is not a bit!", other),
-                };
+            for (pos, val) in subcoords(corner, 0).into_iter().zip(quadrants) {
+                if let Some(idx) = sample_rect(pos, rect) {
+                    buf[idx] = match val {
+                        0 => false,
+                        1 => true,
+                        other => panic!("N = 1 but {} is not a bit!", other),
+                    };
+                }
             }
         } else {
             for (sub_corner, node) in subcoords(corner, n - 1).into_iter().zip(quadrants) {
-                self.cannon_rec(sub_corner, n - 1, buf, width, node);
+                self.cannon_rec(sub_corner, n - 1, buf, rect, node);
             }
         }
     }
@@ -155,7 +165,9 @@ impl Engine {
 
         // Return the input pixel at the given coordinates
         if n == 0 {
-            return sample_input_rect(corner, input_rect, input).unwrap_or(false) as usize;
+            return sample_rect(corner, input_rect)
+                .map(|idx| input[idx])
+                .unwrap_or(false) as usize;
         }
 
         // Calculate which macrocell we are in
