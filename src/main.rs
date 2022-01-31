@@ -10,20 +10,20 @@ fn main() {
     let mut engine = Engine::new();
     let n = 4;
     let root = engine.query((0, 0), n, rect, &data);
-    /*
-    let cannon = engine.cannon(n, root);
-    for row in cannon.chunks_exact(1 << n) {
+    let root = engine.lookup[root].1.unwrap();
+
+    for (idx, elem) in engine.lookup.iter().enumerate() {
+        println!("{}, {:?}", idx, elem);
+    }
+    dbg!(root);
+
+    let cannon = engine.cannon(n - 1, root);
+    for row in cannon.chunks_exact(1 << n - 1) {
         for &elem in row {
             print!("{} ", if elem { '#' } else { '_' });
         }
         println!()
     }
-    */
-
-    dbg!(&engine.lookup);
-    dbg!(&engine.cache);
-    dbg!(root);
-    dbg!(engine.lookup[root]);
 }
 
 type Coord = (i32, i32);
@@ -78,14 +78,13 @@ impl Engine {
     pub fn new() -> Self {
         Self {
             lookup: vec![
-                ([0; 4], None),          // The zero cell always results in a zero cell
+                ([usize::MAX; 4], None),          // The zero cell always results in a zero cell
                 ([usize::MAX; 4], None), // The one cell does not map to anything!
             ],
             cache: HashMap::new(),
         }
     }
 
-    /*
     pub fn cannon(&self, n: usize, root: usize) -> Vec<bool> {
         let side_len = 1 << n;
         let mut data = vec![false; side_len * side_len];
@@ -93,14 +92,14 @@ impl Engine {
         data
     }
 
-    fn cannon_rec(&self, corner: Coord, n: usize, buf: &mut [bool], width: usize, node: usize) {
+    fn cannon_rec(&self, corner: Coord, n: usize, buf: &mut [bool], width: usize, cell: usize) {
         debug_assert_ne!(n, 0);
-        let result = self.lookup[node];
+        let (quadrants, _) = self.lookup[cell];
 
-        dbg!(n, corner, result);
+        dbg!(n, corner, quadrants);
 
         if n == 1 {
-            for ((x, y), val) in subcoords(corner, 0).into_iter().zip(result) {
+            for ((x, y), val) in subcoords(corner, 0).into_iter().zip(quadrants) {
                 buf[(x as usize + y as usize * width)] = match val {
                     0 => false,
                     1 => true,
@@ -108,12 +107,11 @@ impl Engine {
                 };
             }
         } else {
-            for (sub_corner, node) in subcoords(corner, n - 1).into_iter().zip(result) {
+            for (sub_corner, node) in subcoords(corner, n - 1).into_iter().zip(quadrants) {
                 self.cannon_rec(sub_corner, n - 1, buf, width, node);
             }
         }
     }
-    */
 
     /// Calculate the result square of the given area of input with time stamp
     fn query(&mut self, corner: Coord, n: usize, input_rect: Rect, input: &[bool]) -> usize {
@@ -125,13 +123,14 @@ impl Engine {
         let macro_cell = subcoords(corner, n - 1)
             .map(|sub_corner| self.query(sub_corner, n - 1, input_rect, input));
 
-        self.calc_result(macro_cell, n)
+        let result_idx = (n >= 2).then(|| self.calc_result(macro_cell, n));
+        self.push_cell(macro_cell, result_idx)
     }
 
     /// Calculate the result square of the given macro cell
     fn calc_result(&mut self, macro_cell: MacroCell, level: usize) -> usize {
-        if level == 0 {
-            panic!("We can't compute results for 2x2s!");
+        if level <= 1 {
+            panic!("We can't compute results for 1x1s or 2x2s!");
         }
 
         // Check if we already know the result
@@ -143,12 +142,6 @@ impl Engine {
         {
             eprintln!("Found in cache");
             return dbg!(result);
-        }
-
-        // Construct a 2x2 and return it. It has no result!
-        if level == 1 {
-            eprintln!("2x2 lookup");
-            return dbg!(self.push_cell(macro_cell, None));
         }
 
         // Deconstruct the quadrants of the macrocell
@@ -183,18 +176,18 @@ impl Engine {
 
             // Top inner row
             let q = tl_result.unwrap_or_else(|| self.calc_result(tl, level - 2));
-            let r = self.calc_result([b, e, d, g], level - 2);
-            let s = tr_result.unwrap_or_else(|| self.calc_result(tr, level - 2));
+            let r = self.calc_result([b, e, d, g], level - 1);
+            let s = tr_result.unwrap_or_else(|| self.calc_result(tr, level - 1));
 
             // Middle inner row
-            let t = self.calc_result([c, d, i, j], level - 2);
-            let u = self.calc_result([d, g, j, m], level - 2);
-            let v = self.calc_result([g, h, m, n], level - 2);
+            let t = self.calc_result([c, d, i, j], level - 1);
+            let u = self.calc_result([d, g, j, m], level - 1);
+            let v = self.calc_result([g, h, m, n], level - 1);
 
             // Bottom inner row
-            let w = bl_result.unwrap_or_else(|| self.calc_result(bl, level - 2));
-            let x = self.calc_result([j, m, l, o], level - 2);
-            let y = br_result.unwrap_or_else(|| self.calc_result(br, level - 2));
+            let w = bl_result.unwrap_or_else(|| self.calc_result(bl, level - 1));
+            let x = self.calc_result([j, m, l, o], level - 1);
+            let y = br_result.unwrap_or_else(|| self.calc_result(br, level - 1));
 
             /*
             | Q R S |
@@ -203,16 +196,16 @@ impl Engine {
             */
 
             // Solve inner 3x3
-            let result_tl = self.calc_result([q, r, t, u], level - 2);
-            let result_tr = self.calc_result([r, s, u, v], level - 2);
+            let result_tl = self.calc_result([q, r, t, u], level - 1);
+            let result_tr = self.calc_result([r, s, u, v], level - 1);
 
-            let result_bl = self.calc_result([t, u, w, x], level - 2);
-            let result_br = self.calc_result([u, v, x, y], level - 2);
+            let result_bl = self.calc_result([t, u, w, x], level - 1);
+            let result_br = self.calc_result([u, v, x, y], level - 1);
 
             [result_tl, result_tr, result_bl, result_br]
         };
 
-        let result_idx = self.push_cell(result, None);
+        let result_idx = self.push_cell(dbg!(result), None);
 
         self.push_cell(macro_cell, Some(result_idx));
 
