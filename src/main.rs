@@ -86,10 +86,10 @@ impl Engine {
     pub fn new() -> Self {
         Self {
             lookup: vec![
-                ([usize::MAX; 4], None),          // The zero cell always results in a zero cell
+                ([0; 4], Some(0)),       // The zero cell always results in a zero cell
                 ([usize::MAX; 4], None), // The one cell does not map to anything!
             ],
-            cache: HashMap::new(),
+            cache: [([0; 4], 0)].into_iter().collect(),
         }
     }
 
@@ -121,15 +121,24 @@ impl Engine {
 
     /// Calculate the result square of the given area of input with time stamp
     fn query(&mut self, corner: Coord, n: usize, input_rect: Rect, input: &[bool]) -> usize {
+        // Short circuit for zeroes
+        if zero_input(corner, n, input_rect) {
+            return 0;
+        }
+
         // Return the input pixel at the given coordinates
         if n == 0 {
             return sample_input_rect(corner, input_rect, input).unwrap_or(false) as usize;
         }
 
+        // Calculate which macrocell we are in
         let macro_cell = subcoords(corner, n - 1)
             .map(|sub_corner| self.query(sub_corner, n - 1, input_rect, input));
 
+        // Calculate the result for this macro cell
         let result_idx = (n >= 2).then(|| self.calc_result(macro_cell, n));
+
+        // Push the new macrocell
         self.push_cell(macro_cell, result_idx)
     }
 
@@ -206,7 +215,7 @@ impl Engine {
             [result_tl, result_tr, result_bl, result_br]
         };
 
-        let result_idx = self.push_cell(dbg!(result), None);
+        let result_idx = self.push_cell(result, None);
 
         self.push_cell(macro_cell, Some(result_idx));
 
@@ -221,7 +230,7 @@ impl Engine {
                     let _ = self.lookup[idx].1.insert(result);
                 }
                 idx
-            },
+            }
             None => {
                 let idx = self.lookup.len();
                 self.lookup.push((cell, result));
@@ -259,6 +268,30 @@ fn gol_rules(center: bool, neighbors: usize) -> bool {
     }
 }
 
+fn rect_intersect(a: Rect, b: Rect) -> bool {
+    let ((x1a, y1a), (x2a, y2a)) = a;
+    let ((x1b, y1b), (x2b, y2b)) = b;
+    x1a < x2b && x1b < x2a && y1a < y2b && y1b < y2a
+}
+
+fn extend_rect(((x1, y1), (x2, y2)): Rect, w: i32) -> Rect {
+    ((x1 - w, y1 - 2), (x2 + w, y2 + w))
+}
+
+/// Calculates whether or not this square can be anything other than zero, given the input rect
+fn zero_input(coord: Coord, n: usize, input_rect: Rect) -> bool {
+    if n == 0 {
+        return false;
+    }
+
+    let time = 1 << n - 1;
+    let input_rect = extend_rect(input_rect, time);
+
+    let width = 1 << n;
+    let (x, y) = coord;
+    !rect_intersect((coord, (x + width, y + width)), input_rect)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,5 +322,26 @@ mod tests {
                 1, 1, //.
             ]
         );
+    }
+
+    #[test]
+    fn test_rect_intersect() {
+        #[track_caller]
+        fn reflexive(a: Rect, b: Rect, expect: bool) {
+            assert_eq!(rect_intersect(a, b), expect);
+            assert_eq!(rect_intersect(b, a), expect);
+        }
+        reflexive(((-10, -10), (10, 10)), ((-5, -5), (5, 5)), true);
+        reflexive(((-10, -10), (10, 10)), ((0, 0), (5, 5)), true);
+        reflexive(((3, 3), (10, 10)), ((0, 0), (5, 5)), true);
+        reflexive(((7, 7), (10, 10)), ((0, 0), (5, 5)), false);
+        reflexive(((7, 7), (10, 10)), ((0, 0), (5, 5)), false);
+        reflexive(((7, 7), (10, 10)), ((-5, -5), (0, 0)), false);
+        reflexive(((7, 7), (10, 10)), ((-5, -5), (5, 50)), false);
+        reflexive(((0, 0), (10, 10)), ((-5, -5), (5, 50)), true);
+        reflexive(((0, 0), (10, 10)), ((-5, -5), (50, 5)), true);
+
+        reflexive(((0, 0), (10, 10)), ((-5, -5), (-2, 50)), false);
+        reflexive(((0, 0), (10, 10)), ((-5, -5), (50, -2)), false);
     }
 }
