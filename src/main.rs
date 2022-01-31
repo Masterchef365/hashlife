@@ -8,9 +8,9 @@ fn main() {
     ];
     let rect = ((0, 0), (3, 3));
     let mut engine = Engine::new();
-    let n = 2;
+    let n = 4;
     let root = engine.query((0, 0), n, rect, &data);
-
+    /*
     let cannon = engine.cannon(n, root);
     for row in cannon.chunks_exact(1 << n) {
         for &elem in row {
@@ -18,13 +18,12 @@ fn main() {
         }
         println!()
     }
+    */
 
-    /*
     dbg!(&engine.lookup);
     dbg!(&engine.cache);
     dbg!(root);
     dbg!(engine.lookup[root]);
-    */
 }
 
 type Coord = (i32, i32);
@@ -35,21 +34,26 @@ type Rect = (Coord, Coord);
 type MacroCell = [usize; 4];
 
 struct Engine {
+    /// Maps a set of quadrants to the parent macrocell
     cache: HashMap<[usize; 4], usize>,
-    lookup: Vec<[usize; 4]>,
+    /// Macrocells, each lists it's quadrants and it's result cell (if present)
+    lookup: Vec<([usize; 4], Option<usize>)>,
 }
 
+/// Check if the given point is inside the given rectangle
 fn inside_rect((x, y): Coord, ((x1, y1), (x2, y2)): Rect) -> bool {
     debug_assert!(x1 < x2);
     debug_assert!(y1 < y2);
     x >= x1 && x <= x2 && y >= y1 && y <= y2
 }
 
+/// Sample at `pos` from the given `input` buffer positioned at `rect`
 fn sample_input_rect(
     pos @ (x, y): Coord,
     rect @ ((x1, y1), (x2, _)): Rect,
     input: &[bool],
 ) -> Option<bool> {
+    // debug_assert_eq!(input.len(), (x2 - x1) * (y2 - y1)) // TODO:
     inside_rect(pos, rect).then(|| {
         let (dx, dy) = (x - x1, y - y1);
         let width = x2 - x1 + 1; // Plus one since the rect is inclusive
@@ -58,6 +62,8 @@ fn sample_input_rect(
     })
 }
 
+/// Given a corner position at `(x, y)`, and a size `n` return the corner positions of the four
+/// quadrants that make up the macrocell.
 fn subcoords((x, y): Coord, n: usize) -> [Coord; 4] {
     let side_len = 1 << n;
     [
@@ -71,11 +77,15 @@ fn subcoords((x, y): Coord, n: usize) -> [Coord; 4] {
 impl Engine {
     pub fn new() -> Self {
         Self {
-            lookup: vec![[0; 4], [usize::MAX; 4]],
+            lookup: vec![
+                ([0; 4], None),          // The zero cell always results in a zero cell
+                ([usize::MAX; 4], None), // The one cell does not map to anything!
+            ],
             cache: HashMap::new(),
         }
     }
 
+    /*
     pub fn cannon(&self, n: usize, root: usize) -> Vec<bool> {
         let side_len = 1 << n;
         let mut data = vec![false; side_len * side_len];
@@ -103,56 +113,60 @@ impl Engine {
             }
         }
     }
+    */
 
+    /// Calculate the result square of the given area of input with time stamp
     fn query(&mut self, corner: Coord, n: usize, input_rect: Rect, input: &[bool]) -> usize {
+        // Return the input pixel at the given coordinates
         if n == 0 {
-            panic!("Leaf nodes are 2x2!");
+            return sample_input_rect(corner, input_rect, input).unwrap_or(false) as usize;
         }
 
-        if n == 1 {
-            let bits = subcoords(corner, 0)
-                .map(|pos| sample_input_rect(pos, input_rect, input).unwrap_or(false) as usize);
-
-            dbg!(n, bits);
-            return match self.cache.get(&bits) {
-                Some(&idx) => idx,
-                None => dbg!(self.push_cell(bits)),
-            };
-        }
-
-        let sub_squares = subcoords(corner, n - 1)
+        let macro_cell = subcoords(corner, n - 1)
             .map(|sub_corner| self.query(sub_corner, n - 1, input_rect, input));
 
-        self.calc_result(sub_squares, n)
+        self.calc_result(macro_cell, n)
     }
 
+    /// Calculate the result square of the given macro cell
     fn calc_result(&mut self, macro_cell: MacroCell, level: usize) -> usize {
-        eprintln!("CALC {}", level);
-        if let Some(&result) = self.cache.get(&macro_cell) {
-            eprintln!("CACHED {:?} -> {}", macro_cell, result);
-            return result;
+        if level == 0 {
+            panic!("We can't compute results for 2x2s!");
         }
 
+        // Check if we already know the result
+        eprintln!("CALC {:?} n={}", macro_cell, level);
+        if let Some(result) = self
+            .cache
+            .get(&macro_cell)
+            .and_then(|&idx| self.lookup[idx].1)
+        {
+            eprintln!("Found in cache");
+            return dbg!(result);
+        }
+
+        // Construct a 2x2 and return it. It has no result!
+        if level == 1 {
+            eprintln!("2x2 lookup");
+            return dbg!(self.push_cell(macro_cell, None));
+        }
+
+        // Deconstruct the quadrants of the macrocell
         let [
-            tl @ [_, b, c, d], // Top left
-            tr @ [e, _, g, h], // Top right
-            bl @ [i, j, _, l], // Bottom left
-            br @ [m, n, o, _] // Bottom right
+            (tl @ [_, b, c, d], tl_result), // Top left
+            (tr @ [e, _, g, h], tr_result), // Top right
+            (bl @ [i, j, _, l], bl_result), // Bottom left
+            (br @ [m, n, o, _], br_result) // Bottom right
         ] = macro_cell.map(|idx| self.lookup[idx]);
 
-        if level == 1 {
-            return self.push_cell(macro_cell);
-        }
-
-        if level == 2 {
-            // Check if we've encountered this node before
-            let soln = solve_4x4(tl, tr, bl, br);
-            eprintln!("PRIMITIVE {:?} -> {:?}", macro_cell, soln);
-            match self.cache.get(&soln) {
-                Some(&idx) => idx,
-                None => dbg!(self.push_cell(soln)),
-            }
+        // Compute the 4x4 from scratch. If the resulting 2x2 is already in cache, return that
+        // instead of adding a new entry.
+        let result = if level == 2 {
+            eprintln!("Solving 4x4");
+            solve_4x4(tl, tr, bl, br)
         } else {
+            eprintln!("Solving larger cell");
+            // We need to compute the result from composite 3x3 and 2x2
             /*
             | TL | TR |
             +----+----+
@@ -168,9 +182,9 @@ impl Engine {
             */
 
             // Top inner row
-            let q = self.calc_result(tl, level - 2);
+            let q = tl_result.unwrap_or_else(|| self.calc_result(tl, level - 2));
             let r = self.calc_result([b, e, d, g], level - 2);
-            let s = self.calc_result(tr, level - 2);
+            let s = tr_result.unwrap_or_else(|| self.calc_result(tr, level - 2));
 
             // Middle inner row
             let t = self.calc_result([c, d, i, j], level - 2);
@@ -178,9 +192,9 @@ impl Engine {
             let v = self.calc_result([g, h, m, n], level - 2);
 
             // Bottom inner row
-            let w = self.calc_result(bl, level - 2);
+            let w = bl_result.unwrap_or_else(|| self.calc_result(bl, level - 2));
             let x = self.calc_result([j, m, l, o], level - 2);
-            let y = self.calc_result(br, level - 2);
+            let y = br_result.unwrap_or_else(|| self.calc_result(br, level - 2));
 
             /*
             | Q R S |
@@ -188,25 +202,39 @@ impl Engine {
             | W X Y |
             */
 
-            // Solve inner 9x9
+            // Solve inner 3x3
             let result_tl = self.calc_result([q, r, t, u], level - 2);
             let result_tr = self.calc_result([r, s, u, v], level - 2);
 
             let result_bl = self.calc_result([t, u, w, x], level - 2);
             let result_br = self.calc_result([u, v, x, y], level - 2);
 
-            let result = [result_tl, result_tr, result_bl, result_br];
+            [result_tl, result_tr, result_bl, result_br]
+        };
 
-            eprintln!("CONSTRUCT {:?} -> {:?}", macro_cell, result);
-            dbg!(self.push_cell(result))
-        }
+        let result_idx = self.push_cell(result, None);
+
+        self.push_cell(macro_cell, Some(result_idx));
+
+        result_idx
     }
 
-    fn push_cell(&mut self, cell: MacroCell) -> usize {
-        let result_idx = self.lookup.len();
-        self.lookup.push(cell);
-        self.cache.insert(cell, result_idx);
-        result_idx
+    /// Push a cell and it's result, adding to both lookup and cache
+    fn push_cell(&mut self, cell: MacroCell, result: Option<usize>) -> usize {
+        match self.cache.get(&cell) {
+            Some(&idx) => {
+                if let Some(result) = result {
+                    let _ = self.lookup[idx].1.insert(result);
+                }
+                idx
+            },
+            None => {
+                let idx = self.lookup.len();
+                self.lookup.push((cell, result));
+                self.cache.insert(cell, idx);
+                idx
+            }
+        }
     }
 }
 
