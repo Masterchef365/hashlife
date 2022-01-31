@@ -12,7 +12,6 @@ fn main() {
 
     let w = 3;
     let half_width = 1 << n - 2;
-    dbg!(half_width);
     let pos @ (x, y) = (half_width, half_width);
     let rect = (pos, (w + x, w + y));
 
@@ -105,8 +104,6 @@ impl Engine {
         debug_assert_ne!(n, 0);
         let (quadrants, _) = self.lookup[cell];
 
-        //dbg!(n, corner, quadrants);
-
         if n == 1 {
             for ((x, y), val) in subcoords(corner, 0).into_iter().zip(quadrants) {
                 buf[(x as usize + y as usize * width)] = match val {
@@ -143,30 +140,26 @@ impl Engine {
         }
 
         // Check if we already know the result
-        eprintln!("CALC {:?} n={}", macro_cell, level);
         if let Some(result) = self
             .cache
             .get(&macro_cell)
             .and_then(|&idx| self.lookup[idx].1)
         {
-            eprintln!("Found in cache");
-            return dbg!(result);
+            return result;
         }
 
         // Deconstruct the quadrants of the macrocell
         let [
-            (tl @ [_, b, c, d], tl_result), // Top left
-            (tr @ [e, _, g, h], tr_result), // Top right
-            (bl @ [i, j, _, l], bl_result), // Bottom left
-            (br @ [m, n, o, _], br_result) // Bottom right
+            (tl @ [_, b, c, d], _), // Top left
+            (tr @ [e, _, g, h], _), // Top right
+            (bl @ [i, j, _, l], _), // Bottom left
+            (br @ [m, n, o, _], _) // Bottom right
         ] = macro_cell.map(|idx| self.lookup[idx]);
 
         let result = if level == 2 {
             // Compute the 4x4 from scratch. If the resulting 2x2 is already in cache, return that
-            eprintln!("Solving 4x4");
             solve_4x4(tl, tr, bl, br)
         } else {
-            eprintln!("Solving larger cell");
             // We need to compute the result from composite 3x3 and 2x2
             /*
             | TL | TR |
