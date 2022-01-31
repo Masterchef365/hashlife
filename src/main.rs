@@ -1,21 +1,31 @@
 use std::collections::HashMap;
+mod io;
+use io::load_rle;
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let n = args.next().unwrap_or("2".into()).parse().unwrap();
+    let rle_path = args.next();
 
-    let data = [
-        false, false, true, false, //.
-        true, false, true, false, //.
-        false, true, true, false, //.
-        false, false, false, false, //.
-    ];
+    let (data, width) = if let Some(rle_path) = rle_path {
+        load_rle(rle_path).expect("IO Error")
+    } else {
+        (
+            vec![
+                false, false, true, false, //.
+                true, false, true, false, //.
+                false, true, true, false, //.
+                false, false, false, false, //.
+            ],
+            4,
+        )
+    };
 
-    let width = 4;
-    let height = 4;
+    let height = data.len() / width;
 
     let half_n_sq = 1i64 << n - 2;
     let pos @ (x, y) = (half_n_sq, half_n_sq);
-    let rect = (pos, (x + width, y + height));
+    let rect = (pos, (x + width as i64, y + height as i64));
 
     let mut engine = Engine::new();
 
@@ -25,20 +35,26 @@ fn main() {
 
     let root = engine.lookup[root].1.unwrap();
 
-    for (idx, elem) in engine.lookup.iter().enumerate() {
+    /*for (idx, elem) in engine.lookup.iter().enumerate() {
         println!("{}, {:?}", idx, elem);
     }
-    dbg!(root);
+    dbg!(root);*/
 
     println!("Time: {}ms", qt.as_secs_f32() * 1000.);
 
     let cannon = engine.cannon(n - 1, root);
+    /*
     for row in cannon.chunks_exact(1 << n - 1) {
         for &elem in row {
             print!("{} ", if elem { '#' } else { '_' });
         }
         println!()
     }
+    */
+
+    let width = 1 << n - 1;
+    let image_data: Vec<u8> = cannon.into_iter().map(|b| [b as u8 * 255; 3]).flatten().collect();
+    io::write_ppm("out.ppm", &image_data, width).expect("Image IO error");
 }
 
 type Coord = (i64, i64);
