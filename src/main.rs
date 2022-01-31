@@ -23,7 +23,7 @@ fn main() {
 
     let height = data.len() / width;
 
-    let half_n_sq = 1i64 << n - 2;
+    let half_n_sq = 1i64 << n - 1;
     let pos @ (x, y) = (half_n_sq, half_n_sq);
     let rect = (pos, (x + width as i64, y + height as i64));
 
