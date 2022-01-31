@@ -8,11 +8,23 @@ fn main() {
     ];
     let rect = ((0, 0), (3, 3));
     let mut engine = Engine::new();
-    let root = engine.query((0, 0), 3, rect, &data);
+    let n = 2;
+    let root = engine.query((0, 0), n, rect, &data);
+
+    let cannon = engine.cannon(n, root);
+    for row in cannon.chunks_exact(1 << n) {
+        for &elem in row {
+            print!("{} ", if elem { '#' } else { '_' });
+        }
+        println!()
+    }
+
+    /*
     dbg!(&engine.lookup);
     dbg!(&engine.cache);
     dbg!(root);
     dbg!(engine.lookup[root]);
+    */
 }
 
 type Coord = (i32, i32);
@@ -46,24 +58,59 @@ fn sample_input_rect(
     })
 }
 
+fn subcoords((x, y): Coord, n: usize) -> [Coord; 4] {
+    let side_len = 1 << n;
+    [
+        (x, y),
+        (x + side_len, y),
+        (x, y + side_len),
+        (x + side_len, y + side_len),
+    ]
+}
+
 impl Engine {
     pub fn new() -> Self {
         Self {
-            lookup: vec![
-                [0; 4],
-                [usize::MAX; 4],
-            ],
+            lookup: vec![[0; 4], [usize::MAX; 4]],
             cache: HashMap::new(),
         }
     }
 
-    fn query(&mut self, (x, y): Coord, n: usize, input_rect: Rect, input: &[bool]) -> usize {
+    pub fn cannon(&self, n: usize, root: usize) -> Vec<bool> {
+        let side_len = 1 << n;
+        let mut data = vec![false; side_len * side_len];
+        self.cannon_rec((0, 0), n, &mut data, side_len, root);
+        data
+    }
+
+    fn cannon_rec(&self, corner: Coord, n: usize, buf: &mut [bool], width: usize, node: usize) {
+        debug_assert_ne!(n, 0);
+        let result = self.lookup[node];
+
+        dbg!(n, corner, result);
+
+        if n == 1 {
+            for ((x, y), val) in subcoords(corner, 0).into_iter().zip(result) {
+                buf[(x as usize + y as usize * width)] = match val {
+                    0 => false,
+                    1 => true,
+                    other => panic!("N = 1 but {} is not a bit!", other),
+                };
+            }
+        } else {
+            for (sub_corner, node) in subcoords(corner, n - 1).into_iter().zip(result) {
+                self.cannon_rec(sub_corner, n - 1, buf, width, node);
+            }
+        }
+    }
+
+    fn query(&mut self, corner: Coord, n: usize, input_rect: Rect, input: &[bool]) -> usize {
         if n == 0 {
             panic!("Leaf nodes are 2x2!");
         }
 
         if n == 1 {
-            let bits = [(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)]
+            let bits = subcoords(corner, 0)
                 .map(|pos| sample_input_rect(pos, input_rect, input).unwrap_or(false) as usize);
 
             dbg!(n, bits);
@@ -73,15 +120,10 @@ impl Engine {
             };
         }
 
-        let side_len = 1 << n - 1;
-        let tl = self.query((x, y), n - 1, input_rect, input);
-        let tr = self.query((x + side_len, y), n - 1, input_rect, input);
-        let bl = self.query((x, y + side_len), n - 1, input_rect, input);
-        let br = self.query((x + side_len, y + side_len), n - 1, input_rect, input);
+        let sub_squares = subcoords(corner, n - 1)
+            .map(|sub_corner| self.query(sub_corner, n - 1, input_rect, input));
 
-        dbg!(n, tl, tr, bl, br);
-
-        dbg!(self.calc_result([tl, tr, bl, br], n))
+        self.calc_result(sub_squares, n)
     }
 
     fn calc_result(&mut self, macro_cell: MacroCell, level: usize) -> usize {
@@ -104,15 +146,13 @@ impl Engine {
 
         if level == 2 {
             // Check if we've encountered this node before
-            eprintln!("PRIMITIVE {:?}", macro_cell);
             let soln = solve_4x4(tl, tr, bl, br);
-            eprintln!("PRIMITIVE {:?}", soln);
+            eprintln!("PRIMITIVE {:?} -> {:?}", macro_cell, soln);
             match self.cache.get(&soln) {
                 Some(&idx) => idx,
                 None => dbg!(self.push_cell(soln)),
             }
         } else {
-            eprintln!("CONSTRUCT");
             /*
             | TL | TR |
             +----+----+
@@ -155,7 +195,10 @@ impl Engine {
             let result_bl = self.calc_result([t, u, w, x], level - 2);
             let result_br = self.calc_result([u, v, x, y], level - 2);
 
-            dbg!(self.push_cell([result_tl, result_tr, result_bl, result_br]))
+            let result = [result_tl, result_tr, result_bl, result_br];
+
+            eprintln!("CONSTRUCT {:?} -> {:?}", macro_cell, result);
+            dbg!(self.push_cell(result))
         }
     }
 
