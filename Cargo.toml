@@ -8,3 +8,4 @@ debug = true
 
 [dependencies]
 anyhow = "1"
+ahash = "0.7.6"

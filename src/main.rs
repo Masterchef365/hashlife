@@ -1,3 +1,4 @@
+use ahash::{AHasher, RandomState};
 use std::collections::HashMap;
 mod io;
 use io::load_rle;
@@ -41,6 +42,9 @@ fn main() {
     dbg!(root);*/
 
     println!("Time: {}ms", qt.as_secs_f32() * 1000.);
+    dbg!(engine.lookup.len());
+    dbg!(engine.cache.len());
+    return;
 
     let cannon = engine.cannon(n - 1, root);
     /*
@@ -66,7 +70,7 @@ type MacroCell = [usize; 4];
 
 struct Engine {
     /// Maps a set of quadrants to the parent macrocell
-    cache: HashMap<[usize; 4], usize>,
+    cache: HashMap<[usize; 4], usize, RandomState>,
     /// Macrocells, each lists it's quadrants and it's result cell (if present)
     lookup: Vec<([usize; 4], Option<usize>)>,
 }
