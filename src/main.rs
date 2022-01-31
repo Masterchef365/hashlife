@@ -1,14 +1,23 @@
 use std::collections::HashMap;
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let n = args.next().unwrap_or("2".into()).parse().unwrap();
+
     let data = [
         false, false, true, false, //.
         true, false, true, false, //.
         false, true, true, false, //.
         false, false, false, false, //.
     ];
-    let rect = ((0, 0), (3, 3));
+
+    let w = 3;
+    let half_width = 1 << n - 2;
+    dbg!(half_width);
+    let pos @ (x, y) = (half_width, half_width);
+    let rect = (pos, (w + x, w + y));
+
     let mut engine = Engine::new();
-    let n = 4;
+
     let root = engine.query((0, 0), n, rect, &data);
     let root = engine.lookup[root].1.unwrap();
 
@@ -96,7 +105,7 @@ impl Engine {
         debug_assert_ne!(n, 0);
         let (quadrants, _) = self.lookup[cell];
 
-        dbg!(n, corner, quadrants);
+        //dbg!(n, corner, quadrants);
 
         if n == 1 {
             for ((x, y), val) in subcoords(corner, 0).into_iter().zip(quadrants) {
@@ -152,9 +161,8 @@ impl Engine {
             (br @ [m, n, o, _], br_result) // Bottom right
         ] = macro_cell.map(|idx| self.lookup[idx]);
 
-        // Compute the 4x4 from scratch. If the resulting 2x2 is already in cache, return that
-        // instead of adding a new entry.
         let result = if level == 2 {
+            // Compute the 4x4 from scratch. If the resulting 2x2 is already in cache, return that
             eprintln!("Solving 4x4");
             solve_4x4(tl, tr, bl, br)
         } else {
@@ -175,9 +183,9 @@ impl Engine {
             */
 
             // Top inner row
-            let q = tl_result.unwrap_or_else(|| self.calc_result(tl, level - 2));
+            let q = self.calc_result(tl, level - 1);
             let r = self.calc_result([b, e, d, g], level - 1);
-            let s = tr_result.unwrap_or_else(|| self.calc_result(tr, level - 1));
+            let s = self.calc_result(tr, level - 1);
 
             // Middle inner row
             let t = self.calc_result([c, d, i, j], level - 1);
@@ -185,9 +193,9 @@ impl Engine {
             let v = self.calc_result([g, h, m, n], level - 1);
 
             // Bottom inner row
-            let w = bl_result.unwrap_or_else(|| self.calc_result(bl, level - 1));
+            let w = self.calc_result(bl, level - 1);
             let x = self.calc_result([j, m, l, o], level - 1);
-            let y = br_result.unwrap_or_else(|| self.calc_result(br, level - 1));
+            let y = self.calc_result(br, level - 1);
 
             /*
             | Q R S |
